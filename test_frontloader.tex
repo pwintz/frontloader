@@ -1,0 +1,113 @@
+\documentclass{article}
+\usepackage[hidelinks]{hyperref}
+
+\begin{filecontents}[overwrite]{test_frontmatter_article.fl_template.tex}
+  % \begin{frontmatterTemplate}[article]
+  % \expectedDocumentClass{article}
+
+  \title{\frontloader@title}
+
+  \author{
+    \ForEachAuthor[
+      separator={\\}
+    ]{
+      \AuthorFirstMLastName{}% <- No space
+      \IfAuthorHasEmail{%
+        \ % <- space (possibly breaking)
+        (\AuthorEmail{})
+      }%
+    }
+  }
+  
+  \newcommand{\FrontloaderFrontmatter}{%
+    % Generate title page
+    \maketitle
+
+    % \forEachAuthor[
+    %   separator     = {,\\},
+    %   finalSeparator= {, and\\},
+    %   twoSeparator  = { and } 
+    % ]{
+    %   Hello \firstName{} \middleName{} \lastName{}\ifEmail{ (\email{})}!
+    %   Initials: \firstInitial{}\middleInitials{}\lastInitial{}
+    %   % \ifElseEmail{Has Email}{Does not have email}
+    % }
+    % % Insert the abstract, if it has been defined.
+    % \ifcsdef{frontloader@abstract}{%
+    %   \begin{abstract}%
+    %       \frontloader@abstract%
+    %   \end{abstract}%
+    % }{}%
+    % \insertKeywords{}
+  }
+  % \end{frontmatterTemplate}
+\end{filecontents}
+
+% ╭───────────────────────────────────────────────╮
+% │ ╭───────────────────────────────────────────╮ │
+% │ │             Front Matter File             │ │
+% │ ╰───────────────────────────────────────────╯ │
+% ╰───────────────────────────────────────────────╯
+\begin{filecontents}[overwrite]{test_frontloader.fl_values.tex}
+  \begin{frontloaderValues}
+  % \setFrontmatter{
+      title    = {My Title},
+      subtitle = {My subtitle},
+      % author   = Paul,
+      date = {Sept 230},
+      abstract = {
+          In the setting of continuous-time, discrete-time, and hybrid systems, including differential inclusions and difference inclusions, relaxations are given for Lyapunov functions to establish uniform global pre-asymptotic stability (UGAS) of compact sets.
+          It is shown that for a compact set, if there exist a Lyapunov function and two lower semicontinuous functions that are positive definite with respect to the compact set and whose negations are upper bounds on the rate of change of the Lyapunov function during flows and jumps, respectively, then the compact set is UGAS.
+          Under additional regularity conditions, conditions sufficient to show that a compact set is UGAS are further weakened to merely require the rate of change of the Lyapunov function is negative definite.
+          Simplified conditions on hybrid time domains, compared to existing results, are given to establish that a set is UGAS for hybrid systems when the Lyapunov function is merely nonincreasing during either flows or jumps.
+      },
+      keywords = {Stability and stabilization of hybrid systems, Stability of nonlinear systems},
+      bibliographyFiles = Bibliography.bib,
+      shortAuthorList = {Wintz, Sanfelice, Teel},
+      authors = {
+                  {
+                    firstName = Paul,
+                    middleName = Kenna,
+                    lastName = Wintz,
+                    email=pwintz@ucsc.edu
+                  }, {
+                    firstName = Ricardo,
+                    middleName = G,
+                    lastName = Sanfelice,
+                  }, {
+                    firstName = Andrew,
+                    middleName = R,
+                    lastName = Teel,
+                  }
+                }
+  % }
+  \end{frontloaderValues}
+\end{filecontents}
+
+\usepackage[
+  values/file      = test_frontloader.fl_values.tex,
+  template/file    = test_frontmatter_article.fl_template.tex,
+  debug
+  % templates/path = frontloader_templates
+]{frontloader}
+
+% \bibliographystyle{ieeetr}
+\begin{document}
+
+  \FrontloaderFrontmatter{}
+  \FrontloaderDebugInfo{}
+
+  % \ExplSyntaxOn % Enable LaTeX3 Programming layer
+  % Results from LS (might be useful for getting a list of available templates):
+  %   \sys_get_query:nN {ls} \ls_results
+  %   \ \ls_results
+  % Here is more content.
+  % \ExplSyntaxOff% Disable LaTeX3 Programming layer
+
+  \section{Introduction}
+  Test a citation~\cite{goebelHybridDynamicalSystems2012}.
+
+  % Here is my document.
+  \FrontloaderBibliography{}
+\end{document}
+

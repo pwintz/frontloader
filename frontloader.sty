@@ -1,0 +1,1183 @@
+% !TeX root = test_frontloader.tex
+
+% % Disable LTeX for this file (https://valentjn.github.io/ltex/advanced-usage.html#magic-comments)
+% LTeX: enabled=false
+
+% FrontLoader - LaTeX package that provides a standard way of defining document front matter that can be inserted into multiple documents with disparate document classes
+% 
+% (c) 2025 - Paul Wintz
+%
+%% This program can be redistributed and/or modified under the terms
+%% of the LaTeX Project Public License Distributed from CTAN archives
+%% in directory macros/latex/base/lppl.txt.
+% 
+% The purpose of this package is to read and display "front matter" (e.g., title, author, etc.) in a way that is agnostic to the document class. 
+% By specifying front matter content in an external file that is
+% document class-agnostic, the same front matter can be inserted without code duplication into
+% multiple documents  and without needing to modify the front matter code to use the macros
+% of a given class. Bibliographies can also be defined and inserted in the same manner.
+% One nice outcome of using FrontLoader is that the document content (author, title, etc.) 
+% is separated from the the style and implementation of inserting the content into the document
+% 
+% The package has three parts:
+%   1. Front-matter interface: A set of macros, such as setTitle, setAuthor, 
+%      and setAbstract allow document authors to specify the front matter 
+%      in a separate front matter file, such as my_project_frontmatter.fl.tex. 
+%   2. Front matter templates: The frontloader package uses templates that that 
+%      define how the front matter is inserted into each document class. Each 
+%      template defines macros named \FrontloaderFrontmatter{} and \FrontloaderBibliography{}. 
+%      A set of templates for common classes are included in FrontLoader, and 
+%      users can define their own templates.
+%   3. Front matter insertion: Given the front matter file and a template, authors 
+%      create one or more "main" document files, such as "my_project_main_article.tex" 
+%      and "my_project_main_beamer.tex" and then load the front matter for each 
+%      document by including 
+%         
+%         \usepackage[options]{frontloader}
+% 
+%      in the preamble and including \FrontloaderFrontmatter{} to insert the front 
+%      matter (e.g., title page or title slide) and the bibliography is inserted 
+%      using \FrontloaderBibliography{}.
+%   
+%         \usepackage[options]{frontloader}
+%         \begin{document}
+%           \FrontloaderFrontmatter{}
+%           
+%           \input{my_project_body.tex} % Insert the body of the document. 
+% 
+%           \FrontloaderBibliography{}
+%         \end{document}
+% 
+% The bibliography automatically identifies whether the document is using BibTex or BibLaTeX. 
+% 
+% The FrontLoader package should be loaded near the end of the preamble, after hyperref and biblatex (if they are used), so that frontloader can use them.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{frontloader}
+  [2025/06/15 v0.1 LaTeX package that provides a standard way of defining document front matter that can be inserted into multiple documents with disparate document classes]
+
+% \RequirePackage{kvoptions} % Key-value option processing
+\RequirePackage{xstring}   % String processing
+\RequirePackage{etoolbox} % Provides \ifcsdef for checking if a command sequence is defined.
+\RequirePackage{environ}% Provides "NewEnviron" for defining environments.
+
+\RequirePackage{l3keys2e}% To use \keys_define. <- Move to start of file.
+
+% % Assign the non-breaking space character to a macro so that we can use it when ExplSyntax is on. 
+\newcommand{\frontloader@nonbreakingSpace}{~}
+
+\ExplSyntaxOn % Enable LaTeX3 Programming layer
+
+\bool_gset_false:N \frontloader@didDefinedLoadersMatchClass
+
+% ╭──────────────────────────────────────────────╮
+% │ ╭──────────────────────────────────────────╮ │
+% │ │             Package Messages             │ │
+% │ ╰──────────────────────────────────────────╯ │
+% ╰──────────────────────────────────────────────╯
+\char_set_catcode_space:n { `\ }% Change category code of spaces to 12 so spaces can be typed directly, instead of "~"
+  \msg_new:nnn {frontloader} {keyDefine}
+                             {The~key~#1~was~set~to~#2 }
+  \msg_new:nnn {frontloader} {keyvalue}
+                             {==========keyvalue:~#1============ }
+  \msg_new:nnn {frontloader} {function_X_expected_Y_to_be_defined}
+                             {The function #1~was~called,~which~needs~#2~to~be~defined,~but~it~was~not.}
+  \msg_new:nnn {frontloader} {function_X_expected_Y_or_Z_to_be_defined}
+                             {The function #1~was~called,~which~needs~#2~or~#3~to~be~defined,~but~both~were~not.}
+  \msg_new:nnn {frontloader} {msg_bibliography_style_is_X}
+                             {The bibliography style for BibTeX is \string\@bibstyle:~#1.}
+  \msg_new:nnn {frontloader} {error_using_bibtex_but_bibstyle_is_empty}
+                             {The document is using BibTeX for the bibliography, but \string\@bibstyle\ is empty. This may indicate that \string\bibliographystyle\{\} was called without an argument, or something else unexpected occurred.}
+  \msg_new:nnn {frontloader} {warn_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X}
+                             {The document is using BibTeX for the bibliography, but \string\@bibstyle\ is undefined, indicating \string\bibliographystyle\{style_name\} has not been called. The '#1' style will be used as default. To resolve this warning, use \string\bibliographystyle\{style_name\} in the document preamble.}
+  \msg_new:nnn {frontloader} {error_no_bibliography_files_selected}
+                             {Frontloader cannot insert bibliography. The macro \string\FrontloaderBibliography was used, but no bibliography files selected using 'bibliographyFiles={my_bib1.bib,my_bib2.bib}' in the 'frontloaderValues' environment.}
+\char_set_catcode_ignore:n { `\ }% Reset category code of spaces.
+
+
+% ╭─────────────────────────────────────────────╮
+% │ ╭─────────────────────────────────────────╮ │
+% │ │             Package Options             │ │
+% │ ╰─────────────────────────────────────────╯ │
+% ╰─────────────────────────────────────────────╯
+\bool_set:Nn \l_frontloader_debug_bool {\c_false_bool}
+
+\keys_define:nn { frontloader/package_options }{% Define list of key-value options
+  % ───── Define String Key-Value Option: "values/file" ─────
+  values/file .str_set:N = {\frontloader@valuesFile},
+  values/file .value_required:n = true, % If the key is given, it must have a value.
+  
+  % ───── Define String Key-Value Option: "template/file" ─────
+  template/file .str_set:N = {\frontloader@templateFile},
+  template/file .value_required:n = true, % If the key is given, it must have a value.
+
+  % ───── Define Boolean Key-Value Option: "debug" ─────
+  debug .bool_set:N = {\l_frontloader_debug_bool},
+  debug .default:n = true, % If the key is used, set \l_frontloader_debug_bool to true.
+  debug .value_forbidden:n = true,
+}
+
+% Parse keys. See https://tex.stackexchange.com/a/15840/153678
+\ProcessKeysOptions { frontloader/package_options }
+
+% ╭──────────────────────────────────────────────────────────╮
+% │ ╭──────────────────────────────────────────────────────╮ │
+% │ │             Front Loader Key-Value Pairs             │ │
+% │ ╰──────────────────────────────────────────────────────╯ │
+% ╰──────────────────────────────────────────────────────────╯
+
+\str_set:Nx \frontloader@date {\today}
+\int_new:N \frontloader@year
+\int_gset_eq:NN \frontloader@year \c_sys_year_int  % Use the current year, by default.
+\clist_gset:Nn \l_frontloader_authors_key_value_clist {}
+\clist_gset:Nn \l_frontloader_organization_key_value_clist  {}
+
+\keys_define:nn { frontloader/values }{% Define list of key-value options
+  % ───── Define String Key-Value Option: "title" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the title, instead of treating everything as plain text. 
+  title .tl_gset:N = {\frontloader@title},
+  title .value_required:n = true, % If the key is given, it must have a value.
+
+  % ───── Define String Key-Value Option: "short title" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the shortTitle, instead of treating everything as plain text. 
+  shortTitle .tl_gset:N = {\frontloader@shortTitle},
+  shortTitle .value_required:n = true, % If the key is given, it must hafve a value.
+
+  % ───── Define String Key-Value Option: "subtitle" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the subtitle, instead of treating everything as plain text. 
+  subtitle .tl_gset:N = {\frontloader@subtitle},
+  subtitle .value_required:n = true, % If the key is given, it must have a value.
+  
+  % ───── Define String Key-Value Option: "short author list" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the shortAuthorList, instead of treating everything as plain text. 
+  shortAuthorList .tl_gset:N = {\frontloader@shortAuthorList},
+  shortAuthorList .value_required:n = true, % If the key is given, it must have a value.
+
+  % ───── Define String Key-Value Option: "acknowledgementBlurb" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the acknowledgementBlurb, instead of treating everything as plain text. 
+  acknowledgementBlurb .tl_gset:N = {\frontloader@acknowledgementBlurb},
+  
+  % ───── Define String Key-Value Option: "abstract" ─────
+  % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the abstract, instead of treating everything as plain text. 
+  abstract .tl_gset:N = {\frontloader@abstract},
+  abstract .value_required:n = true, % If the key is given, it must have a value.
+  
+  % ───── Define String Key-Value Option: "date" ─────
+  date .str_set:N = {\frontloader@date},
+  
+  % ───── Define Date Key-Value Options ─────
+  year      .int_gset:N = {\frontloader@year},
+  year      .value_required:n = true,
+  % month     .int_gset:N = {\frontloader@month},
+  % month     .value_required:n = true,
+  % day       .int_gset:N = {\frontloader@day  },
+  % day       .value_required:n = true,
+
+  % ───── Define String Key-Value Option: "bibliographyFiles" ─────
+  bibliographyFiles .code:n = {\frontloader@frontloader@setBibliographyFiles{#1}},
+  
+  % ───── Define Comma Separated List (clist) Key-Value Option: "keywords" ─────
+  keywords .clist_gset:N = {\frontloader@keywords},
+
+  % ───── Define Comma Separated List (clist) Key-Value Option: "authors" ─────
+  authors .code:n      = {
+    % Check that the value passed to "authors" matches the 
+    \clist_map_inline:nn { #1 } { \keys_set:nn { frontloader/author } {##1} }
+    \clist_gset:Nn \l_frontloader_authors_key_value_clist {#1}
+  },
+  
+  % ───── Define Comma Separated List (clist) Key-Value Option: "authors" ─────
+  organizations .code:n      = {
+    % Check that the value passed to "authors" matches the 
+    \clist_map_inline:nn { #1 } { \keys_set:nn { frontloader/organization } {##1} }
+    \clist_gset:Nn \l_frontloader_organization_key_value_clist {#1}
+  }
+}
+
+% Define a key-value scheme for authors, to enforce that their info in formatted correctly. 
+\keys_define:nn { frontloader/author }{% Define list of key-value options
+  firstName     .code:n = {},    
+  middleName    .code:n = {},      
+  lastName      .code:n = {},    
+  email         .code:n = {},
+  affiliationId .code:n = {},
+  % The long affiliation for each author should be a sentence fragment that can replace "..." in "The author is with ..." (without trailing space).
+  longAffiliation .code:n = {},
+}
+
+% Define a key-value scheme for authors, to enforce that their info in formatted correctly. 
+\keys_define:nn { frontloader/organization }{% Define list of key-value options
+  name          .code:n = {},    
+  shortName     .code:n = {},      
+  streetAddress .code:n = {},    
+  city          .code:n = {},
+  state         .code:n = {},
+  providence    .code:n = {},
+  postalCode    .code:n = {},
+  country       .code:n = {},
+}
+
+
+% \msg_new:nnn{frontloader}{using_function_but_needed_two_values_not_set}{#1 was called but neither #2 nor #3 have been set.}
+% % \char_set_catcode_ignore:n { 12 }% Reset category code of spaces.
+% % \char_set_catcode_ignore:n { `\ }% Reset category code of spaces.
+% 
+% \msg_fatal:nnnnn {frontloader} {using_function_but_needed_two_values_not_set} {\FrontloaderShortTitle} {\frontloader@shortTitle} {\frontloader@shortTitle}
+
+% \clist_map_inline:Nn \l_frontloader_authors_key_value_clist {
+%   % \msg_fatal:nnn {frontloader} {keyvalue} {#1}
+%   #1
+% }
+
+% \clist_map_inline:Nn \l_frontloader_authors_key_value_clist { 
+%   % output, using "##1" for current list value 
+%   % \keys_set:nn { author } {#1}
+%   % #1
+%   % \prop_set_from_keyval:Nn \l__this_author_prop
+%   %   {
+%   %     #1
+%   %   }
+%   \msg_note:nnn {frontloader} {keyvalue} {#1}
+% }
+
+% \msg_new:nnnn { frontloader } { submodule / message }
+% \char_set_catcode_space:n { '\ }% Change category code of spaces so they can be typed directly, instead of "~"
+% \char_set_catcode_ignore:n { '\ }% Reset category code of spaces.
+% Define keys in the 'inner' module
+% \keys_define:nn { author } {
+%   
+%   foo .code:n = \msg_note:nnnn {frontloader} {keyDefine} {foo} {#1},
+%   bar .code:n = \msg_note:nnnn {frontloader} {keyDefine} {bar} {#1},
+%   % ───── Define String Key-Value Option: "first" ─────
+%   first .str_set:N = {\frontloader@authorFirstName},
+%   
+% }
+
+% Define an environment for users to input the key-value pairs for "frontloader/values".
+\NewEnviron{frontloaderValues}{%
+  % Expand \BODY once, so that the contents of the body (instead of "\BODY") are parsed. 
+  \keys_set:no { frontloader/values } { \BODY }
+}
+
+\newcommand{\FrontloaderTitle}{%
+  \ifcsdef{frontloader@title}{%
+    \frontloader@title%
+  }{%
+    \PackageWarning{frontloader}{%
+      % Error message:
+      \textbackslash FrontloaderTitle was called but \textbackslash frontloader@title has not been set. 
+    }{}%
+  }%
+}
+
+\NewDocumentCommand{\FrontloaderAbstract}{}{%
+  \ifcsdef{frontloader@abstract}{%
+    \frontloader@abstract%
+  }{%
+    \PackageWarning{frontloader}{%
+      % Error message:
+      \textbackslash FrontloaderAbstract was called but \textbackslash frontloader@abstract has not been set. 
+    }{}%
+  }%
+}
+\NewDocumentCommand{\FrontloaderIfHasAbstract}{ m }{%
+  \ifcsdef{frontloader@abstract}{%
+    #1%
+  }%
+}
+
+\newcommand{\FrontloaderShortTitle}{%
+  \str_if_empty:NTF \frontloader@shortTitle {% If frontloader@shortTitle
+    \str_if_empty:NTF \frontloader@title {% If frontloader@shortTitle and frontloader@title are empty
+      \PackageWarning{frontloader}{getShortTitle~was~called~but~neither~frontloader@title~nor~frontloader@shortTitle~have~been~set.}%
+      % Error message:
+      % \msg_error:nnnnnn { frontloader } { using__function_but_needed_two_values_not_set } {\FrontloaderShortTitle} {\frontloader@shortTitle} {\frontloader@shortTitle}
+      % \textbackslash FrontloaderShortTitle was called but neither \textbackslash  nor  have been set. 
+      % }{}
+    }{% If frontloader@title is not empty..
+      \frontloader@title%
+    }
+  }{% If frontloader@shortTitle is not empty.
+    \frontloader@shortTitle
+  }
+}
+
+\newcommand{\FrontloaderDate}{%
+  \frontloader@date%
+}
+
+\newcommand{\FrontloaderYear}{%
+  \int_use:N \frontloader@year%
+}
+
+% ╭────────────────────────────────────────────╮
+% │             Author Information             │
+% ╰────────────────────────────────────────────╯
+
+% \newcommand{\setAuthor}[3]{%
+% % Define a macro named \frontloader@authorX where X is the first argument for \setAuthor. 
+% % For example, \setAuthor2{John Smith} creates a macro named "\frontloader@author2".
+% % Because this macro name has a number in it, it must be referenced using "\csname frontloader@author2\endcsname" (there must not be a space before \endcsname).
+%   \expandafter\newcommand\csname frontloader@author#1\endcsname{#2}%
+% %   \expandafter\providecommand\csname frontloader@shortauthor#1\endcsname{#2}%
+%   \expandafter\newcommand\csname frontloader@authorInstitute#1\endcsname{#3}%
+% }
+
+\newcommand{\FrontloaderAuthor}[1]{%
+  \ifcsdef{frontloader@author#1}{%
+    \csname frontloader@author#1\endcsname%
+  }{
+    \PackageError{frontloader}{%
+      % Error message:
+      \textbackslash FrontloaderAuthor#1 was called but \textbackslash frontloader@author#1 has not been set using \textbackslash setAuthor#1{}. 
+    }{}
+  }
+}
+
+\newcommand{\FrontloaderShortAuthorList}{
+  \str_if_empty:NTF \frontloader@shortAuthorList {% If \frontloader@shortAuthorList is empty...
+      \PackageWarning{frontloader}{frontloader@shortAuthorList~is~empty}%
+      % % TODO: Automatically populate list if the short list is not given.
+      % \ForEachAuthor[separator={,~}, finalSeparator={,~}]{
+      %   \AuthorLastName{}
+      % }
+
+      % % TODO: Abbreviate list if too many authors.
+      % \int_compare:nNnTF {\clist_count:N {\l_frontloader_authors_key_value_clist}} < {4} 
+      %   {
+      %     Less than four authors
+      %   }
+      %   {
+      %     More than four authors
+      %   }
+
+      % % Old code for abbreviating short author list.
+      % \ifcsdef{frontloader@shortAuthorList}{%
+      %     % If frontloader@shortAuthorList has been set 
+      %     % via "\setShortAuthorList", then insert 
+      %     % the value that was defined there.
+      %     \csname frontloader@shortAuthorList\endcsname%
+      % }{%
+      %     % Otherwise, generate the list manually.
+      %     \csname frontloader@author1\endcsname%
+      %     \ifcsdef{frontloader@author4}{% If four+ authors, simply append "et al."
+      %         \ et al.
+      %     }{% If less than four authors, append all authors.
+      %         \ifcsdef{frontloader@author2}{% If defined
+      %             , \csname frontloader@author2\endcsname%
+      %         }{}%
+      %         \ifcsdef{frontloader@author3}{% If defined
+      %             , \csname frontloader@author3\endcsname%
+      %         }{}%
+      %     }%
+      % }%
+      
+    }{% frontloader@shortAuthorList is not empty.
+      \frontloader@shortAuthorList 
+    }
+}
+
+\NewDocumentCommand{\frontloader@formatEmailAsLink}{m}{%
+   \@ifpackageloaded{hyperref}{% If hyperref package...
+          \textup{\texttt{\href{mailto:#1}{#1}}}%
+    }{%
+      \textup{\texttt{#1}}%
+    }%
+}
+
+\newcommand{\FrontloaderKeywords}{%
+  \clist_use:Nn \frontloader@keywords  {,~}%
+}
+
+\newcommand{\FrontloaderAcknowledgementBlurb}[1]{%
+  \ifcsdef{frontloader@acknowledgementBlurb}{%
+    % If \frontloader@acknowledgementBlurb has been set, then insert its value.
+    \frontloader@acknowledgementBlurb%
+  }{}%
+}
+
+% ╭──────────────────────────────────────╮
+% │             Bibliography             │
+% ╰──────────────────────────────────────╯
+    
+\newcommand{\frontloader@frontloader@setBibliographyFiles}[1]{
+  % Set the BibTeX files containing the bibliographic entries.
+
+  % Create a macro named \l_frontloader_bibliography_files_clist.
+  \clist_gset:Nn \l_frontloader_bibliography_files_clist {#1}
+  
+  \@ifpackageloaded{biblatex}{% If biblatex package...
+    %  For each entry in the list of bibliography files given as a comma separated list...
+    \clist_map_inline:nn{ #1 }{
+      % ...add the entry as a bibliography resource.
+      \addbibresource{##1}
+    }
+  }{% If BibTex...
+      % Do nothing. The l_frontloader_bibliography_files_clist macro is used to select the file  when the bibliography is inserted using \FrontloaderBibliography.
+  }%
+}
+
+\newcommand{\FrontloaderBibliography}{
+  \ifcsdef{l_frontloader_bibliography_files_clist}{% If \l_frontloader_bibliography_files_clist is defined...
+    \@ifpackageloaded{biblatex}{% If biblatex package...
+      \bool_if:NT \l_frontloader_debug_bool {
+        Inserting~bibliography~with~BibLaTeX
+      }
+      \printbibliography
+    }{
+      \bool_if:NT \l_frontloader_debug_bool {
+        Inserting bibliography~loaded~from~\clist_use:Nn \l_frontloader_bibliography_files_clist {,~}~with~BibTeX:
+      }
+
+      % Check if "\bibliographystyle{}" has been used by checking if \@bibstyle is set.
+      % \bool_if:nTF {} 
+
+      \cs_if_exist:cTF { @bibstyle } {% If \@bibstyle has not been set...
+        \tl_if_empty:cTF { @bibstyle } {% If \@bibstyle exists but is empty...
+            \msg_fatal:nn { frontloader } { error_using_bibtex_but_bibstyle_is_empty }   
+          }{% Otherwise, \@bibstyle exists and is non-empty...
+            \msg_info:nnn { frontloader } { msg_bibliography_style_is_X }  { \cs_use:c{@bibstyle} }  
+          }
+      }{% Otherwise, \@bibstyle not defined at all
+        \msg_warning:nnn { frontloader } { warn_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X } { plain }  
+        \bibliographystyle{plain}
+      }
+      % \tl_if_empty:NTF \l_frontloader_bibliography_files_clist {% If \l_frontloader_bibliography_files_clist has not been set...
+      % 
+      % }{% If \l_frontloader_bibliography_files_clist is set...
+      % 
+      % }
+      \bibliography{\l_frontloader_bibliography_files_clist}
+    }%
+  }{% Else, if \l_frontloader_bibliography_files_clist is not defined...
+    % No Bibliography file selected. 
+    \msg_error:nn { frontloader } { error_no_bibliography_files_selected }   
+  }
+}
+
+
+
+% ╭───────────────────────────────────────────────────╮
+% │ ╭───────────────────────────────────────────────╮ │
+% │ │             Process user settings             │ │
+% │ ╰───────────────────────────────────────────────╯ │
+% ╰───────────────────────────────────────────────────╯
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Read Document Configurations (Provided by the user) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\IfFileExists{\frontloader@valuesFile}{%
+  % \file_input:o {\frontloader@valuesFile}
+  
+  % Load the user's FrontLoader values file. It is important that this has LaTeX3 syntax turned off, otherwise all of the spaces in the file will be ignored.
+  \ExplSyntaxOff
+    \input{\frontloader@valuesFile}%
+  \ExplSyntaxOn
+
+%   % Read file contents into a token list using the I/O interface
+%   \ior_new:N \l_frontloader_frontmatter_file_ior
+%   \tl_new:N \l__frontloader_filecontents_tl
+%   \ior_open:Nn \l_frontloader_frontmatter_file_ior {\frontloader@valuesFile}
+%   \ior_map_inline:Nn \l_frontloader_frontmatter_file_ior
+%     {
+%       \tl_put_right:Nn \l__frontloader_filecontents_tl { #1 }
+%     }
+%   \ior_close:N \l_frontloader_frontmatter_file_ior
+% 
+%   \tl_show:N \l__frontloader_filecontents_tl
+%   % \keys_set:no {frontloader/values} {\tl_use:c {l__frontloader_filecontents_tl}}
+%   \expandafter\setFrontmatter{\tl_use:N \l__frontloader_filecontents_tl}
+%   % Try loading front matter by input file directly (must have \setFrontmatter or\\begin/end{frontmatter} in the file)
+%   \begin{frontloader@frontmatter}
+%     \l_my_file_contents_tl
+%   \end{frontloader@frontmatter}
+
+
+%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
+%   % \tl_use:c{l__frontloader_filecontents_tl}
+%   
+%   % % Try loading frontmatter using \setFrontmatter macro.
+%   % \tl_new:N {\l__frontloader_filecontents_tl}
+%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
+%   %   % File contents: \tl_to_str:c{l__frontloader_filecontents_tl}
+%   % \setFrontmatter{\tl_use:c{l__frontloader_filecontents_tl}}
+%   
+%   % !! Try inserting the file contents without
+%   % \tl_new:N \l__frontloader_filecontents_tl
+%   % \IfFileExists{\frontloader@valuesFile}{%
+%   %   % \input{\frontloader@valuesFile}%
+%   %   \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
+%   %   % \keys_set:nn {#1} { \l__my_keys_file_tl }
+%   % 
+%   %   % \file_get:nnN {\frontloader@valuesFile} {} {\l__frontloader_filecontents_tl}
+%   %   \keys_set:nn {frontloader} {\tl_use:N \l__frontloader_filecontents_tl}
+%   %   % {
+%   %   %   \file_input_raw:N {\frontloader@valuesFile}
+%   %   % }
+%   % }{%
+}{%
+  \PackageError{frontloader}{The~front~matter~file~\frontloader@valuesFile{}~does~not~exist}{}%
+}
+
+\ExplSyntaxOn % Enable LaTeX3 Programming layer
+% \NewEnviron{frontmatterTemplate}[1]{%
+%   \@ifclassloaded{#1}{% If using article class that matches the environment option...
+%     \frontloader@didDefinedLoadersMatchClasstrue
+%     \newcommand{\insertKeywords}[1][,~]{
+%       \cs_if_exist:cT{frontloader@keywords}{% If \frontloader@keywords is defined...
+%         \textbf{Keywords:~}
+%         \clist_use:Nn \frontloader@keywords {##1}
+%       }%
+%     }
+%     Start of user template \\
+%     \BODY \\
+%     End of user template \\
+%   }
+% }
+
+% Define a function for users to iterate over all of the authors, accessing their given info.
+\NewDocumentCommand{\ForEachAuthor}{ o m }{
+  % ╭──────────────────────────────────────────────────────────────────╮
+  % │             Process \ForEachAuthor Key-value Options             │
+  % ╰──────────────────────────────────────────────────────────────────╯
+  % Create variables to store separator options.      Defaults
+  \tl_set:Nn \l_frontloader_author_separator_tl       { ,~ }
+  \tl_set:Nn \l_frontloader_author_final_separator_tl { ,~and~ }
+  \tl_set:Nn \l_frontloader_author_two_separator_tl   { ~and~ }
+  % Create booleans for tracking if the default "final" and "two authors" separators have been changed from the defaults. 
+  \bool_set_false:N \l__frontloader_is_final_separator_set_bool
+  \bool_set_false:N \l__frontloader_is_author_two_separator_set_bool
+  \IfNoValueF {#1} {% If the optional argument (key-value pairs) is given... 
+    \keys_define:nn { frontloader/ForEachAuthorOptions }{% Define list of key-value options
+      % ⋘────────── Author separator ──────────⋙
+      % Sets the separator between items in the list of authors. 
+      % If "finalSeparator" is given, then "separator" is not used for the last item in a list of three or more items. 
+      % If "twoSeparator" is given, then "separator" is not used between the items in a list with exactly two items.
+      separator .code:n  =  {
+                              \tl_gset:Nn \l_frontloader_author_separator_tl {##1}
+                              
+                              % If the "final separator" has not been set, then use the value given for "separator" to for "final separator". This might be immediately overwriten if the user used the "finalSeparator" keyword and it hasn't been processed yet.
+                              \bool_if:NF \l__frontloader_is_final_separator_set_bool {% If false...
+                                  \tl_gset_eq:NN \l_frontloader_author_final_separator_tl \l_frontloader_author_separator_tl
+                              }
+                              % If "two separator" has not been set, then use the value given for "separator" to for "two separator". This might be immediately overwriten if the user used the "twoSeparator" keyword and it hasn't been processed yet.
+                              \bool_if:NF \l__frontloader_is_author_two_separator_set_bool {% If false...
+                                  \tl_gset_eq:NN \l_frontloader_author_two_separator_tl \l_frontloader_author_separator_tl
+                              }
+                            },
+      separator      .value_required:n = true, % If key is used it must have "=value".
+
+      % ⋘────────── Final Separator (between last two items in list with three or more items) ──────────⋙
+      finalSeparator        .code:n  =  {
+                                          \tl_gset:Nn \l_frontloader_author_final_separator_tl {##1}
+                                          \bool_gset_true:N \l__frontloader_is_final_separator_set_bool
+                                      },
+      finalSeparator .value_required:n = true, % If key is used it must have "=value".
+
+      % ⋘────────── Two-time separator (between list of two items) ──────────⋙
+      twoSeparator       .code:n  =  {
+                                        \tl_gset:Nn \l_frontloader_author_two_separator_tl {##1}
+                                        \bool_gset_true:N \l__frontloader_is_author_two_separator_set_bool
+                                      },
+      twoSeparator   .value_required:n = true, % If key is used it must have "=value".
+    }
+    \keys_set:nn {frontloader/ForEachAuthorOptions} { #1 }
+  }
+  \l_frontloader_for_each_author:nnnn{#2}
+    {\l_frontloader_author_two_separator_tl}
+    {\l_frontloader_author_separator_tl}
+    {\l_frontloader_author_final_separator_tl}
+}
+
+% Define a lower-level function for iterating over authors.
+\cs_new:Nn \l_frontloader_for_each_author:nnnn {}
+\cs_set:Nn \l_frontloader_for_each_author:nnnn {
+  % #1: Key-value string
+  % #2: Separator used by \clist_use:Nnnn
+  % #3: Separator used by \clist_use:Nnnn
+  % #4: Separator used by \clist_use:Nnnn
+  
+  % ⋘────────── Transform each author "prop" object ──────────⋙
+  
+  \clist_clear:N \l_transformed_authors_clist
+
+  \clist_map_inline:Nn { \l_frontloader_authors_key_value_clist } {
+    \prop_clear:N {\l_frontloader_author_prop}
+    % Using the clist entry "##1", create a prop that contains the key-value entries.
+    \prop_put_from_keyval:Nn {\l_frontloader_author_prop} {##1}
+
+    % Create the macros for each author within a group so that they are only defined locally.
+    \begingroup
+      % \prop_if_in:NnF \l_frontloader_author_prop {firstName} 
+      %   {
+      %     \PackageWarning{package_name}{firstName is not defined}%
+      %   }
+      % 
+        % \cs_set:cn { firstName } { Paul }
+        % \cs_new:cn { firstName } { Paul } % creates \AuthorFirstName, but not expl3-style
+
+%         % We can use a inline map over the names we want to 
+%         \clist_map_inline:nn { firstName, middleName, lastName } { 
+%           % Since we are three levels deep, the current clist item is ####1.
+%           % \def\IfAuthorHasFirstName{first}
+%           % if\text_titlecase_all:n {####1}
+%           % \def\testttt{FirstName}
+% 
+%           % Store the key as a lowercase string and title case string.
+%           \str_set:Nx \l_key_str {####1}
+%           \str_set:Nx \l_Key_str {\text_titlecase_all:n {####1}}
+%           % Debugging statements
+%           if\l_Key_str \\
+%           \l_key_str \\
+%           \prop_item:Ne \l_frontloader_author_prop { \str_use:N \l_key_str } \\ 
+% 
+%           \expandafter\def\csname \l_key_str \endcsname {
+%               % Replacing #####1 here with \l_key_str does not work because the value of \l_key_str changes before the macro is evaluated. 
+%               \prop_item:Ne \l_frontloader_author_prop { ####1 }
+%           }
+%           % \expandafter\def\csname if\l_Key_str \endcsname    {\prop_item:Nn \l_frontloader_author_prop { \l_key_str }}
+%           % \IfAuthorHasFirstName
+% 
+%           \cs_undefine:c {if\l_Key_str}
+%           \cs_undefine:c {ifNot\l_Key_str}
+%           \cs_undefine:c {ifElse\l_Key_str}
+%           % \newcommand{\csname IfAuthorHasEmail \endcsname}[1]{
+%           %   % If the email property is provided, insert the parameter that was passed to \IfAuthorHasEmail.
+%           %   \prop_if_in:NnT \l_frontloader_author_prop {email} { ####1 }
+%           % }
+%           % \newcommand{\csname  \endcsname}[1]{
+%           %   % If the email property is not provided, insert the parameter that was passed to \.
+%           %   \prop_if_in:NnF \l_frontloader_author_prop {email} { ####1 }
+%           % }
+%           % \newcommand{\csname IfAuthorHasEmailElse \endcsname}[2]{
+%           %   % If the email property is provided, insert the first parameter that was passed to \IfAuthorHasEmailElse. Otherwise, insert the second.
+%           %   \prop_if_in:NnTF \l_frontloader_author_prop {email} { ####1 } { ####2 }
+%           % }
+%           \\[2em]
+%          }
+        
+      \str_set:Ne \l_frontloader_author_first_name_str       {\prop_item:Nn \l_frontloader_author_prop {firstName}}
+      \str_set:Ne \l_frontloader_author_middle_name_str      {\prop_item:Nn \l_frontloader_author_prop {middleName}}
+      \str_set:Ne \l_frontloader_author_last_name_str        {\prop_item:Nn \l_frontloader_author_prop {lastName}}
+      \str_set:Ne \l_frontloader_author_email_str            {\prop_item:Nn \l_frontloader_author_prop {email}}
+      \tl_set:Ne \l_frontloader_author_long_affiliation_tl   {\prop_item:Nn \l_frontloader_author_prop {longAffiliation}}
+      \str_set:Ne \l_frontloader_first_initial_str           {\str_head:N \l_frontloader_author_first_name_str }
+      \str_set:Ne \l_frontloader_middle_initials_str         {\str_head:N \l_frontloader_author_middle_name_str}
+      \str_set:Ne \l_frontloader_last_initial_str            {\str_head:N \l_frontloader_author_last_name_str  }
+      \def\AuthorFirstName     {\l_frontloader_author_first_name_str}
+      \def\AuthorMiddleName    {\l_frontloader_author_middle_name_str} 
+      \def\AuthorLastName      {\l_frontloader_author_last_name_str}
+      \def\AuthorFirstInitial  {\str_head:N \l_frontloader_author_first_name_str  }
+      \def\AuthorMiddleInitial {\str_head:N \l_frontloader_author_middle_name_str}
+      \def\AuthorLastInitial   {\str_head:N \l_frontloader_author_last_name_str   }
+      \def\AuthorEmail         {\frontloader@formatEmailAsLink{\l_frontloader_author_email_str}}
+      \def\AuthorEmailPlain    {\l_frontloader_author_email_str}
+      % \cs_set_eq:NN \AuthorLongAffiliation \l_frontloader_author_long_affiliation_tl
+      \def\AuthorLongAffiliation{ \l_frontloader_author_long_affiliation_tl }
+
+      % ⋘────────── Clear all of the control sequences ──────────⋙
+      \cs_undefine:N \IfAuthorHasFirstName
+      \cs_undefine:N \IfAuthorHasFirstNameElse
+      \cs_undefine:N \IfAuthorHasMiddleName
+      \cs_undefine:N \IfAuthorHasMiddleNameElse
+      \cs_undefine:N \IfAuthorHasLastName
+      \cs_undefine:N \IfAuthorHasLastNameElse
+      \cs_undefine:N \IfAuthorHasEmail
+      \cs_undefine:N \IfAuthorHasEmailElse
+
+      % ⋘────────── FirstName conditionals ──────────⋙
+      \newcommand{\IfAuthorHasFirstName}[1]{
+        % If the firstName property is provided, insert the parameter that was passed to \IfAuthorHasFirstName.
+        \prop_if_in:NnT \l_frontloader_author_prop {firstName} { ####1 }
+      }
+      \newcommand{\IfAuthorHasFirstNameElse}[2]{
+        % If the firstName property is provided, insert the first parameter that was passed to \IfAuthorHasFirstNameElse. Otherwise, insert the second.
+        \prop_if_in:NnTF \l_frontloader_author_prop {firstName} { ####1 } { ####2 }
+      }
+
+      % ⋘────────── MiddleName conditionals ──────────⋙
+      \newcommand{\IfAuthorHasMiddleName}[1]{
+        % If the middleName property is provided, insert the parameter that was passed to \IfAuthorHasMiddleName.
+        \prop_if_in:NnT \l_frontloader_author_prop {middleName} { ####1 }
+      }
+      \newcommand{\IfAuthorHasMiddleNameElse}[2]{
+        % If the middleName property is provided, insert the first parameter that was passed to \IfAuthorHasMiddleNameElse. Otherwise, insert the second.
+        \prop_if_in:NnTF \l_frontloader_author_prop {middleName} { ####1 } { ####2 }
+      }
+
+      % ⋘────────── LastName conditionals ──────────⋙
+      \newcommand{\IfAuthorHasLastName}[1]{
+        % If the lastName property is provided, insert the parameter that was passed to \IfAuthorHasLastName.
+        \prop_if_in:NnT \l_frontloader_author_prop {lastName} { ####1 }
+      }
+      \newcommand{\IfAuthorHasLastNameElse}[2]{
+        % If the lastName property is provided, insert the first parameter that was passed to \IfAuthorHasLastNameElse. Otherwise, insert the second.
+        \prop_if_in:NnTF \l_frontloader_author_prop {lastName} { ####1 } { ####2 }
+      }
+
+      % ⋘────────── Email conditionals ──────────⋙
+      \newcommand{\IfAuthorHasEmail}[1]{
+        % If the email property is provided, insert the parameter that was passed to \IfAuthorHasEmail.
+        \prop_if_in:NnT \l_frontloader_author_prop {email} { ####1 }
+      }
+      \newcommand{\IfAuthorHasEmailElse}[2]{
+        % If the email property is provided, insert the first parameter that was passed to \IfAuthorHasEmailElse. Otherwise, insert the second.
+        \prop_if_in:NnTF \l_frontloader_author_prop {email} { ####1 } { ####2 }
+      }
+
+      % ⋘────────── longAffiliation conditionals ──────────⋙
+      \newcommand{\IfAuthorHasLongAffiliation}[1]{
+        % If the longAffiliation property is provided, insert the parameter that was passed to \IfAuthorHasLongAffiliation.
+        \prop_if_in:NnT \l_frontloader_author_prop {longAffiliation} { ####1 }
+      }
+      \newcommand{\IfAuthorHasLongAffiliationElse}[2]{
+        % If the longAffiliation property is provided, insert the first parameter that was passed to \IfAuthorHasLongAffiliationElse. Otherwise, insert the second.
+        \prop_if_in:NnTF \l_frontloader_author_prop {longAffiliation} { ####1 } { ####2 }
+      }
+      
+      % % We could include macros that are the negations of the the \IfAuthorHasX macros, but I the functionality is provided by the \IfAuthorHasXElse functions, so I think this adds unneeded complexity.
+      % \cs_undefine:N \ifNoFirst
+      % \cs_undefine:N \ifNoMiddle
+      % \cs_undefine:N \ifNoLast
+      % \cs_undefine:N \ifNoEmail
+      % \newcommand{\ifNoEmail}[1]{
+      %   % If the email property is not provided, insert the parameter that was passed to \.
+      %   \prop_if_in:NnF \l_frontloader_author_prop {email} { ####1 }
+      % }
+      % \newcommand{\ifNoLast}[1]{
+      %   % If the lastName property is not provided, insert the parameter that was passed to \ifNoLast.
+      %   \prop_if_in:NnF \l_frontloader_author_prop {lastName} { ####1 }
+      % }
+      % \newcommand{\ifNoFirst}[1]{
+      %   % If the firstName property is not provided, insert the parameter that was passed to \ifNoFirst.
+      %   \prop_if_in:NnF \l_frontloader_author_prop {firstName} { ####1 }
+      % }
+      % \newcommand{\ifNoMiddle}[1]{
+      %   % If the middleName property is not provided, insert the parameter that was passed to \ifNoMiddle.
+      %   \prop_if_in:NnF \l_frontloader_author_prop {middleName} { ####1 }
+      % }
+
+
+      % Define a "convenience" macro for inserting the author's full name.
+      \def\AuthorFirstMiddleLastName{%
+        \IfAuthorHasFirstName{\AuthorFirstName{}~}% <- space after name
+        \IfAuthorHasMiddleName{\AuthorMiddleName{}~}% <- space after name
+        \IfAuthorHasLastName{\AuthorLastName{}}%
+      }
+
+      % Define a "convenience" macro for inserting the author's name in the format "First M. Last".
+      \def\AuthorFirstMLastName{%
+        \IfAuthorHasFirstName{\AuthorFirstName{}~}% <- space after name
+        \IfAuthorHasMiddleName{\AuthorMiddleInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasLastName{\AuthorLastName{}}
+      }
+
+      % Define a "convenience" macro for inserting the author's name in the format "First Last".
+      \def\AuthorFirstLastName{%
+        \IfAuthorHasFirstName{\AuthorFirstName{}~}% <- space after name
+        \IfAuthorHasLastName{\AuthorLastName{}}
+      }
+
+      % Define a "convenience" macro for inserting the author's name in the format "F. Last".
+      \def\AuthorFLastName{%
+        \IfAuthorHasFirstName{\AuthorFirstInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasLastName{\AuthorLastName{}}
+      }
+
+      % Define a "convenience" macro for inserting the author's name in the format "F.M. Last".
+      \def\AuthorFMLastName{%
+        \IfAuthorHasFirstName{\AuthorFirstInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasMiddleName{\AuthorMiddleInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasLastName{\AuthorLastName{}}
+      }
+
+      % Define a "convenience" macro for inserting the author's initials in the format "F.M.L.".
+      \def\AuthorFMLName{%
+        \IfAuthorHasFirstName{\AuthorFirstInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasMiddleName{\AuthorMiddleInitial{}.\frontloader@nonbreakingSpace{}}
+        \IfAuthorHasFirstName{\AuthorLastInitial{}.\frontloader@nonbreakingSpace{}}
+      }
+
+
+      % Expand the "#1" argument, which stores the users template for the author, and which can use the macros \AuthorFirstName, \AuthorLastName, etc. The "x" in ":Nx" indicates eXpansion.
+      \tl_set:Nx \l_tmpa_tl { #1 }
+      
+      % Add the processed item to the list.
+      \clist_gput_right:NV \l_transformed_authors_clist \l_tmpa_tl
+    \endgroup
+  }
+  % Join the elements of the clist using the separators provided by the user (or defaults).
+  \clist_use:Nnnn \l_transformed_authors_clist { #2 } { #3 }{ #4 }
+
+%     \clist_map_inline:Nn { \l_frontloader_authors_key_value_clist } {
+%       % Ensure that \l_frontloader_author_prop exists and is empty.
+%       \prop_clear:N {\l_frontloader_author_prop}
+%       \prop_put_from_keyval:Nn {\l_frontloader_author_prop} {##1}
+% 
+%       \begingroup
+%         \def\AuthorFirstName{\prop_item:Nn \l_frontloader_author_prop {firstName}}
+%         \def\AuthorMiddleName{\prop_item:Nn \l_frontloader_author_prop {middleName}}
+%         \def\AuthorLastName{\prop_item:Nn \l_frontloader_author_prop {lastName}}
+%         \def\firstInitial{\prop_item:Nn \l_frontloader_author_prop {firstInitial}}
+%         \def\middleInitial {\prop_item:Nn \l_frontloader_author_prop {middleInitial }}
+%         \def\AuthorLastInitial{\prop_item:Nn \l_frontloader_author_prop {lastInitial}}
+%         \def\AuthorEmail{\prop_item:Nn \l_frontloader_author_prop {email}}
+%         % \AuthorFirstName
+%         % #1
+%         #1 
+%       \endgroup
+%       
+%     }
+}
+
+\ExplSyntaxOff% Disable LaTeX3 Programming layer
+
+
+\IfStrEq{\frontloader@templateFile}% Check if templateFile string is empty
+        {}% <- Empty string
+{%
+  
+  % \@ifclassloaded{article}{% If using article class...
+  %   \frontloader@didDefinedLoadersMatchClasstrue
+  %   \title{\frontloader@title}
+  %   \newcommand{\FrontloaderFrontmatter}{%
+  %     % Generate title page
+  %     \maketitle
+  %   
+  %     % Insert the abstract, if it has been defined.
+  %     \ifcsdef{frontloader@abstract}{%
+  %       \begin{abstract}%
+  %           \frontloader@abstract%
+  %       \end{abstract}%
+  %     }{}%
+  %     \insertKeywords{}
+  %   }
+  % }{}%
+
+  \@ifclassloaded{ieeeconf}{% If using ieeeconf class...
+    \frontloader@didDefinedLoadersMatchClasstrue
+    % \newcommand{\insertAuthor}[1]{%
+    %   % Insert Nth author, if defined.
+    %   % #1: Author index.
+    %   \ifcsdef{frontloader@author#1}{% If defined
+    %     \ifnum#1>1
+    %       % If not the first author, then use \and to connect the names.
+    %       \and
+    %     \fi
+    %     \authorblockN{\csname frontloader@author#1\endcsname}%
+    %   }{}%
+    % }
+    % \newcommand{\insertAuthorAffiliation}[1]{%
+    %   % If the Nth author is defined, insert their affiliation.
+    %   % #1: Author index.
+    %   \ifcsdef{frontloader@author#1}{% If author is defined
+    %     \ifnum#1>1
+    %       % If not the first author, then use ";" to connect the list items.
+    %       ;
+    %     \fi%
+    %     \csname frontloader@author#1\endcsname{} is with
+    %     \csname frontloader@longAffiliation#1\endcsname{}
+    %     (\frontloader@insertemailfromcs{frontloader@authorEmail#1})%
+    %   }{}%
+    % }
+    % Populate title from value defined in frontmatter.tex.
+    \title{\FrontloaderTitle{}}%
+    \author{%
+      \ForEachAuthor[
+        % use \and to connect the names.
+        separator={\and}
+      ]{
+        \authorblockN{%
+          % \IfAuthorHasFirstName{%
+          %   \AuthorFirstName{}~% <- nonbreaking fixed-width space
+          % }%
+          % \IfAuthorHasMiddleName{%
+          %   \middleInitial{}.~% <- nonbreaking fixed-width space
+          % }%
+          % \IfAuthorHasLastName{%
+          %   \AuthorLastName{}% No space
+          % }%
+        }%
+        %
+        % \thanks{
+        %   \ForEachAuthor[
+        %     % use \and to connect the names.
+        %     separator={;~}
+        %   ]{
+        %     % \IfAuthorHasFirstName{%
+        %     %   \AuthorFirstName{}~% <- nonbreaking fixed-width space
+        %     % }%
+        %     % \IfAuthorHasMiddleName{%
+        %     %   \middleInitial{}.~% <- nonbreaking fixed-width space
+        %     % }%
+        %     % \IfAuthorHasLastName{%
+        %     % \AuthorLastName{}% No space
+        %     X
+        %     % }% 
+        %     is with \AuthorLongAffiliation{}% <- No space. A space is added if author has email.
+        %     \IfAuthorHasEmail{%
+        %       \ % <- space (possibly breaking)
+        %       (\frontloader@formatEmailAsLink{\AuthorEmail{}})% <- No space
+        %     }%
+        %   }.% <- Period to end sentence
+        % }
+        \thanks{%
+          \FrontloaderAcknowledgementBlurb{}%
+        }%
+      }
+    }
+    \newcommand{\FrontloaderFrontmatter}{%
+      % Generate title page
+      \maketitle
+    
+      % Insert the abstract, if it has been defined.
+      \FrontloaderHasAbstract{%
+        \begin{abstract}%
+          \FrontloaderAbstract%
+        \end{abstract}%
+      }
+    }
+  }{}%
+
+  \@ifclassloaded{acmart}{% if using ACM article class, 
+    \frontloader@didDefinedLoadersMatchClasstrue
+    \begin{abstract}%
+      \frontloader@abstract%
+    \end{abstract}%
+
+    % Populate title from value defined in frontmatter.tex.
+    \title{\frontloader@title}
+
+    \newcommand{\frontloader@insertAuthor}[1]{
+      % #1: The position "X" of the author in the author list.
+      \ifcsdef{frontloader@author#1}{% If defined
+        \author{\csname frontloader@author#1\endcsname}%
+        % \affiliation{\csname frontloader@authorInstitute#1\endcsname}%
+        % \country{USA}
+        \AuthorEmail{\csname frontloader@authorEmail#1\endcsname}%
+      }{}%
+    }
+
+    \newcommand{\FrontloaderFrontmatter}{%
+      \begin{center}
+        \frontloader@insertAuthor{1}
+        % \frontloader@insertAuthor{2}
+        % \frontloader@insertAuthor{3}
+        % \frontloader@insertAuthor{4}
+      \end{center}
+
+      % Generate Title
+      \maketitle
+    }
+  }{}
+
+  \@ifclassloaded{beamer}{% If using beamer class...
+
+    \frontloader@didDefinedLoadersMatchClasstrue
+    % \newcommand
+    % Insert Xth author, if defined.
+    \newcommand{\frontloader@insertAuthor}[1]{%
+      \ifcsdef{frontloader@author#1}{% If defined
+          \quad% 
+          \csuse{frontloader@author#1}%
+          \ifcsdef{frontloader@institute2}{%
+            % If there are at least two institutes, then insert superscripts.
+            \textsuperscript{\csuse{frontloader@authorInstitute#1}}%
+          }{}%
+          \quad% 
+      }{}%
+    }
+    % Populate title using value defined in frontmatter.tex
+    \title{\frontloader@title}
+
+    \author{% 
+      % Populate author information from definitions in frontmatter.tex
+      % Insert first author, if defined.
+      \quad
+      \frontloader@insertAuthor1
+      \frontloader@insertAuthor2
+      \frontloader@insertAuthor3
+      \frontloader@insertAuthor4
+      % \quad
+    }
+    % \makeatother
+      
+    \institute{% Populate institutions that are defined in frontmatter.tex
+      \ifcsdef{frontloader@institute1}{% If defined
+        \ifcsdef{frontloader@institute2}{% 
+          % If there are two (or more) institutes, then we add a supscript number to indicate which authors are at which institutes.
+            \textsuperscript{1}%
+        }{}% Else nothing
+        \csname frontloader@institute1\endcsname%
+      }{}% Else nothing
+      \ifcsdef{frontloader@institute2}{% If defined
+        \\ \textsuperscript{2}\csname frontloader@institute2\endcsname%
+      }{}% Else nothing
+      \ifcsdef{frontloader@institute3}{% If defined
+        \\ \textsuperscript{3}\csname frontloader@institute3\endcsname%
+      }{}% Else nothing
+      \ifcsdef{frontloader@institute3}{; }{}% Add "; " if there is another institute
+      \ifcsdef{frontloader@institute4}{% If defined
+        \\ \textsuperscript{4}\csname frontloader@institute3\endcsname%
+      }{}% Else nothing
+    } 
+
+    \newcommand{\FrontloaderFrontmatter}{%
+      % TITLE FRAME
+      \begin{frame}[plain]
+        % Set the title and an (optional) subtitle in frontmatter.tex.
+        \maketitle
+
+      \end{frame}
+    }
+  }{}%
+
+  % \makeatletter
+  \@ifclassloaded{ifacconf}{% If using ifacconf class...
+    \frontloader@didDefinedLoadersMatchClasstrue
+    \newcommand{\FrontloaderFrontmatter}{%
+      \begin{frontmatter}
+        % \makeatletter
+        % Title, preferably not more than 10 words.
+        \title{\frontloader@title{}\thanksref{acknowledgements}} 
+        
+        \ifcsdef{frontloader@acknowledgementBlurb}{%
+          \thanks[acknowledgements]{\FrontloaderAcknowledgementBlurb{}}
+        }
+            
+        % \newcommand{\frontloader@insertAuthor}[2][]{%
+        %   \ifcsdef{frontloader@author#1}{% If defined
+        %       \quad% 
+        %       \csuse{frontloader@author#1}%
+        %       \ifcsdef{frontloader@institute2}{%
+        %         % If there are at least two institutes, then insert superscripts.
+        %         \textsuperscript{\csuse{frontloader@authorInstitute#1}}%
+        %       }{}%
+        %       \quad% 
+        %   }{}%
+        % }
+
+        \author[First]{\csname frontloader@author1\endcsname}\quad
+        \author[Second]{\csname frontloader@author2\endcsname} 
+        
+        \address [First]{\csname frontloader@longAffiliation1\endcsname{} \textup{(\frontloader@insertemailfromcs{frontloader@authorEmail1})}}
+        \address[Second]{\csname frontloader@longAffiliation2\endcsname{} \textup{(\frontloader@insertemailfromcs{frontloader@authorEmail2})}}
+        
+        \begin{abstract}%
+          \frontloader@abstract
+        \end{abstract}
+        
+        \begin{keyword}
+          \FrontloaderKeywords{}
+        \end{keyword}
+        \maketitle
+      \end{frontmatter}
+    }
+  }{}%
+
+  % Check that the class was recognized
+  \iffrontloader@didDefinedLoadersMatchClass 
+      % OK.
+  \else 
+      \PackageError{frontloader}{The document class did not match any of the classes with implemented in frontloader. 
+        Use the `templateFile` option to set a custom file for loading front matter.}
+  \fi
+}{% "templateFile" option was given, 
+
+  % \newcommand{\FrontloaderFrontmatter}{%
+  \input{\frontloader@templateFile}%
+  % }
+}
+
+\ExplSyntaxOn % Enable LaTeX3 Programming layer
+\newcommand{\FrontloaderDebugInfo}{
+  \section{Frontloader~Debug~Info}
+  \subsection{Frontloader~stored~macro~values}
+    \begin{tabular}[t]{rl}
+      \textbf{frontloader@valuesFile}           & \url{\cs_if_exist_use:c {frontloader@valuesFile}}     \\
+      \textbf{frontloader@templateFile}         & \url{\cs_if_exist_use:c {frontloader@templateFile}}   \\
+      \textbf{frontloader@title}                & \cs_if_exist_use:c {frontloader@title}                \\
+      \textbf{frontloader@shortTitle}           & \cs_if_exist_use:c {frontloader@shortTitle}           \\
+      \textbf{frontloader@subtitle}             & \cs_if_exist_use:c {frontloader@subtitle}             \\
+      \textbf{frontloader@shortAuthorList}      & \cs_if_exist_use:c {frontloader@shortAuthorList}      \\
+      \textbf{frontloader@date}~(str)           & \cs_if_exist_use:c {frontloader@date}                 \\
+      \textbf{frontloader@year}~(int)           & \int_use:c {frontloader@year}                         \\
+      % \textbf{abstract}             & \parbox{0.8\linewidth}{\cs_if_exist_use:c {frontloader@abstract}            } \\
+      % \textbf{acknowledgementBlurb} & \parbox{0.8\linewidth}{\cs_if_exist_use:c {frontloader@acknowledgementBlurb}} \\
+      % \textbf{month}                & \cs_if_exist_use:c {frontloader@month}                \\
+      % \textbf{day}                  & \cs_if_exist_use:c {frontloader@day}                  \\
+      % \textbf{keywords}             & \cs_if_exist_use:c {frontloader@keywords}             
+    \end{tabular}\\
+    
+    \textbf{frontloader@abstract:} \\
+    \cs_if_exist_use:c {frontloader@abstract} \\[10pt]
+    \textbf{frontloader@acknowledgementBlurb} \\
+    \cs_if_exist_use:c {frontloader@acknowledgementBlurb} \\[10pt]
+
+    \subsection{Frontloader~getX{}~results}
+    \begin{tabular}{rl}
+      \textbf{FrontloaderTitle}                & \parbox{0.8\linewidth}{\FrontloaderTitle{}               }  \\
+      \textbf{FrontloaderShortTitle}           & \parbox{0.8\linewidth}{\FrontloaderShortTitle{}          }  \\
+      \textbf{FrontloaderShortAuthorList}      & \parbox{0.8\linewidth}{\FrontloaderShortAuthorList{}     }  \\
+      % \textbf{getAcknowledgementBlurb} & \parbox{0.8\linewidth}{\FrontloaderAcknowledgementBlurb{}}
+    \end{tabular}\\
+
+    \textbf{FrontloaderAcknowledgementBlurb} \\
+    \FrontloaderAcknowledgementBlurb{} \\[10pt]
+
+    \subsection{Front~loader~author~info}
+    
+    % \begin{tabular}{rl}
+    \ForEachAuthor[separator={\\ \rule{10em}{0.1pt} \\}]{
+        % {\begin{tabular}{rl}
+          % line \\ 
+          AuthorFirstName             :~\AuthorFirstName{}           \\
+          AuthorMiddleName            :~\AuthorMiddleName{}          \\
+          AuthorLastName              :~\AuthorLastName{}            \\
+          AuthorFirstInitial          :~\AuthorFirstInitial{}        \\
+          AuthorMiddleInitial         :~\AuthorMiddleInitial         \\
+          AuthorLastInitial           :~\AuthorLastInitial{}         \\
+          AuthorEmail                 :~\AuthorEmail{}               \\
+          AuthorLongAffiliation       :~\AuthorLongAffiliation{}     \\
+          AuthorFirstMiddleLastName   :~\AuthorFirstMiddleLastName{} \\                                                
+          AuthorFirstMLastName        :~\AuthorFirstMLastName{}      \\                               
+          AuthorFirstLastName         :~\AuthorFirstLastName{}       \\                            
+          AuthorFLastName             :~\AuthorFLastName{}           \\                    
+          AuthorFMLastName            :~\AuthorFMLastName{}          \\                       
+          AuthorFMLName               :~\AuthorFMLName{}                            
+        % \end{tabular}}
+    }
+    % \end{tabular}
+}
+
+% \FrontloaderAuthor
+% \FrontloaderAuthorEmail
+% \FrontloaderInstitute
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Configure the document using the user-provided values %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ 
+\ExplSyntaxOff% Disable LaTeX3 Programming layer
+
+\makeatletter
+\@ifpackageloaded{hyperref}{% If hyperref package...
+  \hypersetup{
+    % Set the metadata for the produced PDF.
+    pdftitle={\FrontloaderShortTitle{}},
+    pdfauthor={\FrontloaderShortAuthorList{}},
+    pdfcreationdate={\FrontloaderDate{}}, % <- Doesn't change the creation date.
+    %% Currently, we don't set the pdfsubject or pdfkeywords,
+    %% but these might be nice in the future.
+    % pdfsubject={},
+    pdfkeywords={\FrontloaderKeywords{}},
+  }
+}{}%
+\makeatother
+
+\endinput% Stop input here when this file is loaded.
+%%
+%% End of file `frontloader.sty'.
+
