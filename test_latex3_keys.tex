@@ -1,0 +1,271 @@
+\documentclass{article}
+\usepackage{expl3}
+
+\ExplSyntaxOn
+
+% Create a clist of author information. Each entry key-value information for one author. 
+\clist_new:N {\l_author_key_value_clist}
+
+% Define a key-value scheme for authors, to enforce that their info in formatted correctly. 
+\keys_define:nn { author }{% Define list of key-value options
+  firstName     .code:n = {},    
+  middleName    .code:n = {},      
+  lastName      .code:n = {},    
+  email         .code:n = {},
+  affiliation   .code:n = {},
+}
+
+\NewDocumentCommand{\addAuthor}{m}{
+  \clist_map_inline:nn { #1 } { \keys_set:nn {author} {##1} }
+  \clist_put_right:Nn \l_author_key_value_clist { #1 }
+}
+% For convenience, define \addAuthors to match the plurality of the number of authors given.
+\cs_new_eq:NN \addAuthors \addAuthor
+
+\addAuthor{
+  {
+    firstName = Paul,
+    lastName = Wintz,
+    affiliation = UCSC, 
+    email = pwintz@ucsc.edu
+  },
+}
+\addAuthors{
+  {
+    firstName   = Paul,
+    middleName = Kenna,
+    lastName    = Wintz,
+    affiliation = UCSC, 
+    email       = pwintz@ucsc.edu
+  },
+  {
+    firstName   = Carlos,
+    lastName    = Blackmountain,
+    affiliation = UCSC,
+  },
+}
+\begin{document}
+  \section{Key-value~pairs}
+
+  \cs_new:Nn \l_frontloader_for_each_author:nnnn {}
+  \cs_set:Nn \l_frontloader_for_each_author:nnnn {
+    
+    % ⋘────────── Transform each author "prop" object ──────────⋙
+    
+    \clist_clear:N \l_transformed_authors_clist
+  
+    \clist_map_inline:Nn { \l_author_key_value_clist } {
+      \prop_clear:N {\l_tmpa_prop}
+      % Using the clist entry "##1", create a prop that contains the key-value entries.
+      \prop_put_from_keyval:Nn {\l_tmpa_prop} {##1}
+      \begingroup
+        % \prop_if_in:NnF \l_tmpa_prop {firstName} 
+        %   {
+        %     \PackageWarning{package_name}{firstName is not defined}%
+        %   }
+        % 
+          % \cs_set:cn { firstName } { Paul }
+          % \cs_new:cn { firstName } { Paul } % creates \firstName, but not expl3-style
+
+%         % We can use a inline map over the names we want to 
+%         \clist_map_inline:nn { firstName, middleName, lastName } { 
+%           % Since we are three levels deep, the current clist item is ####1.
+%           % \def\ifFirstName{first}
+%           % if\text_titlecase_all:n {####1}
+%           % \def\testttt{FirstName}
+% 
+%           % Store the key as a lowercase string and title case string.
+%           \str_set:Nx \l_key_str {####1}
+%           \str_set:Nx \l_Key_str {\text_titlecase_all:n {####1}}
+%           % Debugging statements
+%           if\l_Key_str \\
+%           \l_key_str \\
+%           \prop_item:Ne \l_tmpa_prop { \str_use:N \l_key_str } \\ 
+% 
+%           \expandafter\def\csname \l_key_str \endcsname {
+%               % Replacing #####1 here with \l_key_str does not work because the value of \l_key_str changes before the macro is evaluated. 
+%               \prop_item:Ne \l_tmpa_prop { ####1 }
+%           }
+%           % \expandafter\def\csname if\l_Key_str \endcsname    {\prop_item:Nn \l_tmpa_prop { \l_key_str }}
+%           % \ifFirstName
+% 
+%           \cs_undefine:c {if\l_Key_str}
+%           \cs_undefine:c {ifNot\l_Key_str}
+%           \cs_undefine:c {ifElse\l_Key_str}
+%           % \newcommand{\csname ifEmail \endcsname}[1]{
+%           %   % If the email property is provided, insert the parameter that was passed to \ifEmail.
+%           %   \prop_if_in:NnT \l_tmpa_prop {email} { ####1 }
+%           % }
+%           % \newcommand{\csname ifNotEmail \endcsname}[1]{
+%           %   % If the email property is not provided, insert the parameter that was passed to \ifNotEmail.
+%           %   \prop_if_in:NnF \l_tmpa_prop {email} { ####1 }
+%           % }
+%           % \newcommand{\csname ifElseEmail \endcsname}[2]{
+%           %   % If the email property is provided, insert the first parameter that was passed to \ifElseEmail. Otherwise, insert the second.
+%           %   \prop_if_in:NnTF \l_tmpa_prop {email} { ####1 } { ####2 }
+%           % }
+%           \\[2em]
+%          }
+         
+        \str_set:Ne \l_frontloader_first_name_str   {\prop_item:Nn \l_tmpa_prop {firstName}}
+        \str_set:Ne \l_frontloader_middle_names_str {\prop_item:Nn \l_tmpa_prop {middleName}}
+        \str_set:Ne \l_frontloader_last_name_str    {\prop_item:Nn \l_tmpa_prop {lastName}}
+        \str_set:Ne \l_frontloader_first_initial_str   {\str_head:N \l_frontloader_first_name_str  }
+        \str_set:Ne \l_frontloader_middle_initials_str {\str_head:N \l_frontloader_middle_names_str}
+        \str_set:Ne \l_frontloader_last_initial_str    {\str_head:N \l_frontloader_last_name_str   }
+        \def\firstName    {\l_frontloader_first_name_str}
+        \def\middleName  {\l_frontloader_middle_names_str} 
+        \def\lastName     {\l_frontloader_last_name_str}
+        \def\firstInitial  {\str_head:N \l_frontloader_first_name_str  }
+        \def\middleInitials{\str_head:N \l_frontloader_middle_names_str}
+        \def\lastInitial   {\str_head:N \l_frontloader_last_name_str   }
+        \def\email         {\prop_item:Nn \l_tmpa_prop {email}}
+
+        % ⋘────────── Clear all of the control sequences ──────────⋙
+        \cs_undefine:N \ifFirstName
+        \cs_undefine:N \ifNotFirstName
+        \cs_undefine:N \ifElseFirstName
+        \cs_undefine:N \ifMiddleName
+        \cs_undefine:N \ifNotMiddleName
+        \cs_undefine:N \ifElseMiddleName
+        \cs_undefine:N \ifLastName
+        \cs_undefine:N \ifNotLastName
+        \cs_undefine:N \ifElseLastName
+        \cs_undefine:N \ifFirstInitial
+        \cs_undefine:N \ifNotFirstInitial
+        \cs_undefine:N \ifElseFirstInitial
+        \cs_undefine:N \ifMiddleInitial
+        \cs_undefine:N \ifNotMiddleInitial
+        \cs_undefine:N \ifElseMiddleInitial
+        \cs_undefine:N \ifLastInitial
+        \cs_undefine:N \ifNotLastInitial
+        \cs_undefine:N \ifElseLastInitial
+        \cs_undefine:N \ifEmail
+        \cs_undefine:N \ifNotEmail
+        \cs_undefine:N \ifElseEmail
+
+        % ⋘────────── FirstName conditionals ──────────⋙
+        \newcommand{\ifFirstName}[1]{
+          % If the firstName property is provided, insert the parameter that was passed to \ifFirstName.
+          \prop_if_in:NnT \l_tmpa_prop {firstName} { ####1 }
+        }
+        \newcommand{\ifNotFirstName}[1]{
+          % If the firstName property is not provided, insert the parameter that was passed to \ifNotFirstName.
+          \prop_if_in:NnF \l_tmpa_prop {firstName} { ####1 }
+        }
+        \newcommand{\ifElseFirstName}[2]{
+          % If the firstName property is provided, insert the first parameter that was passed to \ifElseFirstName. Otherwise, insert the second.
+          \prop_if_in:NnTF \l_tmpa_prop {firstName} { ####1 } { ####2 }
+        }
+
+        % ⋘────────── MiddleName conditionals ──────────⋙
+        \newcommand{\ifMiddleName}[1]{
+          % If the middleName property is provided, insert the parameter that was passed to \ifMiddleName.
+          \prop_if_in:NnT \l_tmpa_prop {middleName} { ####1 }
+        }
+        \newcommand{\ifNotMiddleName}[1]{
+          % If the middleName property is not provided, insert the parameter that was passed to \ifNotMiddleName.
+          \prop_if_in:NnF \l_tmpa_prop {middleName} { ####1 }
+        }
+        \newcommand{\ifElseMiddleName}[2]{
+          % If the middleName property is provided, insert the first parameter that was passed to \ifElseMiddleName. Otherwise, insert the second.
+          \prop_if_in:NnTF \l_tmpa_prop {middleName} { ####1 } { ####2 }
+        }
+
+        % ⋘────────── LastName conditionals ──────────⋙
+        \newcommand{\ifLastName}[1]{
+          % If the lastName property is provided, insert the parameter that was passed to \ifLastName.
+          \prop_if_in:NnT \l_tmpa_prop {lastName} { ####1 }
+        }
+        \newcommand{\ifNotLastName}[1]{
+          % If the lastName property is not provided, insert the parameter that was passed to \ifNotLastName.
+          \prop_if_in:NnF \l_tmpa_prop {lastName} { ####1 }
+        }
+        \newcommand{\ifElseLastName}[2]{
+          % If the lastName property is provided, insert the first parameter that was passed to \ifElseLastName. Otherwise, insert the second.
+          \prop_if_in:NnTF \l_tmpa_prop {lastName} { ####1 } { ####2 }
+        }
+
+        % ⋘────────── Email conditionals ──────────⋙
+        \newcommand{\ifEmail}[1]{
+          % If the email property is provided, insert the parameter that was passed to \ifEmail.
+          \prop_if_in:NnT \l_tmpa_prop {email} { ####1 }
+        }
+        \newcommand{\ifNotEmail}[1]{
+          % If the email property is not provided, insert the parameter that was passed to \ifNotEmail.
+          \prop_if_in:NnF \l_tmpa_prop {email} { ####1 }
+        }
+        \newcommand{\ifElseEmail}[2]{
+          % If the email property is provided, insert the first parameter that was passed to \ifElseEmail. Otherwise, insert the second.
+          \prop_if_in:NnTF \l_tmpa_prop {email} { ####1 } { ####2 }
+        }
+        
+
+        % Expand the "#1" argument, which stores the users template for the author, and which can use the macros \firstName, \lastName, etc. The "x" in ":Nx" indicates eXpansion.
+        \tl_set:Nx \l_tmpa_tl { #1 }
+        
+        % Add the processed item to the list.
+        \clist_gput_right:NV \l_transformed_authors_clist \l_tmpa_tl
+      \endgroup
+    }
+    % Join the elements of the clist using the separators provided by the user (or defaults).
+    \clist_use:Nnnn \l_transformed_authors_clist { #2 } { #3 }{ #4 }
+
+%     \clist_map_inline:Nn { \l_author_key_value_clist } {
+%       % Ensure that \l_tmpa_prop exists and is empty.
+%       \prop_clear:N {\l_tmpa_prop}
+%       \prop_put_from_keyval:Nn {\l_tmpa_prop} {##1}
+% 
+%       \begingroup
+%         \def\firstName{\prop_item:Nn \l_tmpa_prop {firstName}}
+%         \def\middleName{\prop_item:Nn \l_tmpa_prop {middleName}}
+%         \def\lastName{\prop_item:Nn \l_tmpa_prop {lastName}}
+%         \def\firstInitial{\prop_item:Nn \l_tmpa_prop {firstInitial}}
+%         \def\middleInitials{\prop_item:Nn \l_tmpa_prop {middleInitials}}
+%         \def\lastInitial{\prop_item:Nn \l_tmpa_prop {lastInitial}}
+%         \def\email{\prop_item:Nn \l_tmpa_prop {email}}
+%         % \firstName
+%         % #1
+%         #1 
+%       \endgroup
+%       
+%     }
+  }
+  \NewDocumentCommand{\forEachAuthor}{ o m }{
+    % Create variables to store separator options.      Defaults
+    \tl_set:Nn \l_frontloader_author_separator_tl       { ~and~ }
+    \tl_set:Nn \l_frontloader_author_final_separator_tl { ,~ }
+    \tl_set:Nn \l_frontloader_author_two_separator_tl   { ~and~ }
+    \IfNoValueF {#1} {
+      \keys_define:nn { frontloader/forEachAuthorOptions }{% Define list of key-value options
+        % ───── Define Token List Key-Value Options ─────
+        separator             .tl_set:N  = {\l_frontloader_author_separator_tl},
+        separator      .value_required:n = true, % If key is used it must have "=value".
+        finalSeparator        .tl_set:N  = {\l_frontloader_author_final_separator_tl},
+        finalSeparator .value_required:n = true, % If key is used it must have "=value".
+        twoSeparator          .tl_set:N  = {\l_frontloader_author_two_separator_tl},
+        twoSeparator   .value_required:n = true, % If key is used it must have "=value".
+      }
+      \keys_set:nn {frontloader/forEachAuthorOptions} { #1 }
+    }
+    \l_frontloader_for_each_author:nnnn{#2}
+      {\l_frontloader_author_two_separator_tl}
+      {\l_frontloader_author_separator_tl}
+      {\l_frontloader_author_final_separator_tl}
+  }
+  
+  \section{For~each~author}
+  Count:~\clist_count:N \l_author_key_value_clist \\
+  \ExplSyntaxOff
+  \forEachAuthor[
+    separator     = {,\\},
+    finalSeparator= {, and\\},
+    twoSeparator  = { and } 
+  ]{
+    Hello \firstName{} \middleName{} \lastName{}\ifEmail{ (\email{})}!
+    Initials: \firstInitial{}\middleInitials{}\lastInitial{}
+    % \ifElseEmail{Has Email}{Does not have email}
+  }
+  % \ifEmail{}
+  
+\end{document}

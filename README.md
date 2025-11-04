@@ -60,7 +60,7 @@ To package `frontloader`:
 The ` .package_for_CTAN.sh` script executes the following steps:
 
 
-### 1. Package .dtx file
+### 1. Package `.dtx` file
 Run the `makedtx` tool to package the documentation and `.sty` files into a `.dtx` file.
 Often, `makedtx` is packaged with your LaTeX installation, so it does not need to be installed separately. 
 Run 
@@ -68,7 +68,7 @@ Run
 makedtx --version
 ```
 to check it is installed. 
-To build the `.dtx` file, run 
+To build the `.dtx` file, run, 
 ```bash
 makedtx -src "frontloader\.sty=>frontloader.sty" -doc frontloader-doc.tex frontloader
 ```

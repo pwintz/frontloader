@@ -75,25 +75,30 @@
 % │ │             Package Messages             │ │
 % │ ╰──────────────────────────────────────────╯ │
 % ╰──────────────────────────────────────────────╯
-\char_set_catcode_space:n { `\ }% Change category code of spaces to 12 so spaces can be typed directly, instead of "~"
-  \msg_new:nnn {frontloader} {keyDefine}
-                             {The~key~#1~was~set~to~#2 }
-  \msg_new:nnn {frontloader} {keyvalue}
-                             {==========keyvalue:~#1============ }
+% Change category code of spaces to 12 so spaces can be typed directly, instead of "~"
+\char_set_catcode_space:n { `\ }
+  % ╭───────────────────────────────────────╮
+  % │             Info Messages             │
+  % ╰───────────────────────────────────────╯
+  \msg_new:nnn {frontloader} {msg_bibliography_style_is_X}
+                             {The bibliography style for BibTeX is \string\@bibstyle:~#1.}
+  % ╭───────────────────────────────────────────╮
+  % │             Warning Messages              │
+  % ╰───────────────────────────────────────────╯
   \msg_new:nnn {frontloader} {function_X_expected_Y_to_be_defined}
                              {The function #1~was~called,~which~needs~#2~to~be~defined,~but~it~was~not.}
   \msg_new:nnn {frontloader} {function_X_expected_Y_or_Z_to_be_defined}
                              {The function #1~was~called,~which~needs~#2~or~#3~to~be~defined,~but~both~were~not.}
-  \msg_new:nnn {frontloader} {msg_bibliography_style_is_X}
-                             {The bibliography style for BibTeX is \string\@bibstyle:~#1.}
+  \msg_new:nnn {frontloader} {warning_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X}
+                             {The document is using BibTeX for the bibliography, but \string\@bibstyle\ is undefined, indicating \string\bibliographystyle\{style_name\} has not been called. The '#1' style will be used as default. To resolve this warning, use \string\bibliographystyle\{style_name\} in the document preamble.}
+  % ╭────────────────────────────────────────╮
+  % │             Error Messages             │
+  % ╰────────────────────────────────────────╯
   \msg_new:nnn {frontloader} {error_using_bibtex_but_bibstyle_is_empty}
                              {The document is using BibTeX for the bibliography, but \string\@bibstyle\ is empty. This may indicate that \string\bibliographystyle\{\} was called without an argument, or something else unexpected occurred.}
-  \msg_new:nnn {frontloader} {warn_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X}
-                             {The document is using BibTeX for the bibliography, but \string\@bibstyle\ is undefined, indicating \string\bibliographystyle\{style_name\} has not been called. The '#1' style will be used as default. To resolve this warning, use \string\bibliographystyle\{style_name\} in the document preamble.}
   \msg_new:nnn {frontloader} {error_no_bibliography_files_selected}
-                             {Frontloader cannot insert bibliography. The macro \string\FrontloaderBibliography was used, but no bibliography files selected using 'bibliographyFiles={my_bib1.bib,my_bib2.bib}' in the 'frontloaderValues' environment.}
+                             {Frontloader cannot insert bibliography. The macro \string\FrontloaderBibliography was used, but no bibliography files selected using the key-value option 'bibliographyFiles={...}' in the 'frontloaderValues' environment.}
 \char_set_catcode_ignore:n { `\ }% Reset category code of spaces.
-
 
 % ╭─────────────────────────────────────────────╮
 % │ ╭─────────────────────────────────────────╮ │
@@ -141,7 +146,7 @@
   % ───── Define String Key-Value Option: "short title" ─────
   % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the shortTitle, instead of treating everything as plain text. 
   shortTitle .tl_gset:N = {\frontloader@shortTitle},
-  shortTitle .value_required:n = true, % If the key is given, it must hafve a value.
+  shortTitle .value_required:n = true, % If the key is given, it must have a value.
 
   % ───── Define String Key-Value Option: "subtitle" ─────
   % It is important to use a token_list variable ("tl_set") instead of a string variable ("str_set") so that the variable will preserve equations and other tokens that occur in the subtitle, instead of treating everything as plain text. 
@@ -224,21 +229,6 @@
 % 
 % \msg_fatal:nnnnn {frontloader} {using_function_but_needed_two_values_not_set} {\FrontloaderShortTitle} {\frontloader@shortTitle} {\frontloader@shortTitle}
 
-% \clist_map_inline:Nn \l_frontloader_authors_key_value_clist {
-%   % \msg_fatal:nnn {frontloader} {keyvalue} {#1}
-%   #1
-% }
-
-% \clist_map_inline:Nn \l_frontloader_authors_key_value_clist { 
-%   % output, using "##1" for current list value 
-%   % \keys_set:nn { author } {#1}
-%   % #1
-%   % \prop_set_from_keyval:Nn \l__this_author_prop
-%   %   {
-%   %     #1
-%   %   }
-%   \msg_note:nnn {frontloader} {keyvalue} {#1}
-% }
 
 % \msg_new:nnnn { frontloader } { submodule / message }
 % \char_set_catcode_space:n { '\ }% Change category code of spaces so they can be typed directly, instead of "~"
@@ -434,28 +424,25 @@
 
       \cs_if_exist:cTF { @bibstyle } {% If \@bibstyle has not been set...
         \tl_if_empty:cTF { @bibstyle } {% If \@bibstyle exists but is empty...
-            \msg_fatal:nn { frontloader } { error_using_bibtex_but_bibstyle_is_empty }   
+            \msg_error:nn { frontloader } { error_using_bibtex_but_bibstyle_is_empty }   
           }{% Otherwise, \@bibstyle exists and is non-empty...
             \msg_info:nnn { frontloader } { msg_bibliography_style_is_X }  { \cs_use:c{@bibstyle} }  
           }
       }{% Otherwise, \@bibstyle not defined at all
-        \msg_warning:nnn { frontloader } { warn_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X } { plain }  
+        \msg_warning:nnn { frontloader } { warning_using_bibtex_but_bibstyle_is_undefined_so_substituting_default_style_X } { plain }  
         \bibliographystyle{plain}
       }
-      % \tl_if_empty:NTF \l_frontloader_bibliography_files_clist {% If \l_frontloader_bibliography_files_clist has not been set...
-      % 
-      % }{% If \l_frontloader_bibliography_files_clist is set...
-      % 
-      % }
-      \bibliography{\l_frontloader_bibliography_files_clist}
+      \tl_if_empty:NTF \l_frontloader_bibliography_files_clist {% If \l_frontloader_bibliography_files_clist has not been set...
+      
+      }{% If \l_frontloader_bibliography_files_clist is set...
+        \bibliography{\l_frontloader_bibliography_files_clist}
+      }
     }%
   }{% Else, if \l_frontloader_bibliography_files_clist is not defined...
     % No Bibliography file selected. 
     \msg_error:nn { frontloader } { error_no_bibliography_files_selected }   
   }
 }
-
-
 
 % ╭───────────────────────────────────────────────────╮
 % │ ╭───────────────────────────────────────────────╮ │
@@ -478,41 +465,41 @@
 
 %   % Read file contents into a token list using the I/O interface
 %   \ior_new:N \l_frontloader_frontmatter_file_ior
-%   \tl_new:N \l__frontloader_filecontents_tl
+%   \tl_new:N \l__frontloader_file_contents_tl
 %   \ior_open:Nn \l_frontloader_frontmatter_file_ior {\frontloader@valuesFile}
 %   \ior_map_inline:Nn \l_frontloader_frontmatter_file_ior
 %     {
-%       \tl_put_right:Nn \l__frontloader_filecontents_tl { #1 }
+%       \tl_put_right:Nn \l__frontloader_file_contents_tl { #1 }
 %     }
 %   \ior_close:N \l_frontloader_frontmatter_file_ior
 % 
-%   \tl_show:N \l__frontloader_filecontents_tl
-%   % \keys_set:no {frontloader/values} {\tl_use:c {l__frontloader_filecontents_tl}}
-%   \expandafter\setFrontmatter{\tl_use:N \l__frontloader_filecontents_tl}
+%   \tl_show:N \l__frontloader_file_contents_tl
+%   % \keys_set:no {frontloader/values} {\tl_use:c {l__frontloader_file_contents_tl}}
+%   \expandafter\setFrontmatter{\tl_use:N \l__frontloader_file_contents_tl}
 %   % Try loading front matter by input file directly (must have \setFrontmatter or\\begin/end{frontmatter} in the file)
 %   \begin{frontloader@frontmatter}
 %     \l_my_file_contents_tl
 %   \end{frontloader@frontmatter}
 
 
-%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
-%   % \tl_use:c{l__frontloader_filecontents_tl}
+%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_file_contents_tl
+%   % \tl_use:c{l__frontloader_file_contents_tl}
 %   
 %   % % Try loading frontmatter using \setFrontmatter macro.
-%   % \tl_new:N {\l__frontloader_filecontents_tl}
-%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
-%   %   % File contents: \tl_to_str:c{l__frontloader_filecontents_tl}
-%   % \setFrontmatter{\tl_use:c{l__frontloader_filecontents_tl}}
+%   % \tl_new:N {\l__frontloader_file_contents_tl}
+%   % \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_file_contents_tl
+%   %   % File contents: \tl_to_str:c{l__frontloader_file_contents_tl}
+%   % \setFrontmatter{\tl_use:c{l__frontloader_file_contents_tl}}
 %   
 %   % !! Try inserting the file contents without
-%   % \tl_new:N \l__frontloader_filecontents_tl
+%   % \tl_new:N \l__frontloader_file_contents_tl
 %   % \IfFileExists{\frontloader@valuesFile}{%
 %   %   % \input{\frontloader@valuesFile}%
-%   %   \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_filecontents_tl
+%   %   \file_get:nnN {\frontloader@valuesFile} {} \l__frontloader_file_contents_tl
 %   %   % \keys_set:nn {#1} { \l__my_keys_file_tl }
 %   % 
-%   %   % \file_get:nnN {\frontloader@valuesFile} {} {\l__frontloader_filecontents_tl}
-%   %   \keys_set:nn {frontloader} {\tl_use:N \l__frontloader_filecontents_tl}
+%   %   % \file_get:nnN {\frontloader@valuesFile} {} {\l__frontloader_file_contents_tl}
+%   %   \keys_set:nn {frontloader} {\tl_use:N \l__frontloader_file_contents_tl}
 %   %   % {
 %   %   %   \file_input_raw:N {\frontloader@valuesFile}
 %   %   % }
@@ -558,11 +545,11 @@
       separator .code:n  =  {
                               \tl_gset:Nn \l_frontloader_author_separator_tl {##1}
                               
-                              % If the "final separator" has not been set, then use the value given for "separator" to for "final separator". This might be immediately overwriten if the user used the "finalSeparator" keyword and it hasn't been processed yet.
+                              % If the "final separator" has not been set, then use the value given for "separator" to for "final separator". This might be immediately overwritten if the user used the "finalSeparator" keyword and it hasn't been processed yet.
                               \bool_if:NF \l__frontloader_is_final_separator_set_bool {% If false...
                                   \tl_gset_eq:NN \l_frontloader_author_final_separator_tl \l_frontloader_author_separator_tl
                               }
-                              % If "two separator" has not been set, then use the value given for "separator" to for "two separator". This might be immediately overwriten if the user used the "twoSeparator" keyword and it hasn't been processed yet.
+                              % If "two separator" has not been set, then use the value given for "separator" to for "two separator". This might be immediately overwritten if the user used the "twoSeparator" keyword and it hasn't been processed yet.
                               \bool_if:NF \l__frontloader_is_author_two_separator_set_bool {% If false...
                                   \tl_gset_eq:NN \l_frontloader_author_two_separator_tl \l_frontloader_author_separator_tl
                               }
@@ -1007,7 +994,7 @@
     \institute{% Populate institutions that are defined in frontmatter.tex
       \ifcsdef{frontloader@institute1}{% If defined
         \ifcsdef{frontloader@institute2}{% 
-          % If there are two (or more) institutes, then we add a supscript number to indicate which authors are at which institutes.
+          % If there are two (or more) institutes, then we add a superscript number to indicate which authors are at which institutes.
             \textsuperscript{1}%
         }{}% Else nothing
         \csname frontloader@institute1\endcsname%

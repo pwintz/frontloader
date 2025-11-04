@@ -1,0 +1,28 @@
+\documentclass{article}
+\usepackage{expl3}
+\begin{document}
+\ExplSyntaxOn
+
+%plist1 definition
+\prop_new:N \l_list_a_prop
+\prop_put:Nnn \l_list_a_prop { 1 } { 2 }
+\prop_put:Nnn \l_list_a_prop { 3 } { 4 }
+
+%plist2 definition
+\prop_new:N \l_list_b_prop
+\prop_put:Nnn \l_list_b_prop { 5 } { 6 }
+\prop_put:Nnn \l_list_b_prop { hello } { 8 }
+
+%putting plists to sequence
+\seq_new:N \l_my_seq
+\seq_push:Nn \l_my_seq { \l_list_a_prop }
+\seq_push:Nn \l_my_seq { \l_list_b_prop }
+\seq_map_inline:Nn \l_my_seq
+  {
+    \prop_get:NnNT #1 { hello } \l_tmpa_tl
+      {
+        \prop_map_inline:Nn #1 { [ ##1 ] ~ [ ##2 ] \\ }
+    }
+  }
+\ExplSyntaxOff
+\end{document}

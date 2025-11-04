@@ -1,0 +1,63 @@
+\AtBeginDocument{
+    % Populate title from value defined in frontmatter.tex.
+    \makeatletter
+    \title{\frontloader@title}
+
+    % \newcommand{\insertAuthor}[1]{%
+    %   % Insert Nth author, if defined.
+    %   % #1: Author index.
+    %   \ifcsdef{frontloader@author#1}{% If defined
+    %     \ifnum#1>1
+    %       % If not the first author, then use \and to connect the names.
+    %       \and
+    %     \fi
+    %     \authorblockN{\csname frontloader@author#1\endcsname}%
+    %   }{}%
+    % }
+    % \newcommand{\insertAuthorAffiliation}[1]{%
+    %   % If the Nth author is defined, insert their affiliation.
+    %   % #1: Author index.
+    %   \ifcsdef{frontloader@author#1}{% If author is defined
+    %     \ifnum#1>1%
+    %       % If not the first author, then use ";" to connect the list items.
+    %       ;
+    %     \fi%
+    %     \csname frontloader@author#1\endcsname{} is with
+    %     \csname frontloader@longAffiliation#1\endcsname{}
+    %     (\frontloader@insertemailfromcs{frontloader@authorEmail#1})%
+    %   }{}%
+    % }
+    % \author{% 
+    %   % Populate author information from definitions in frontmatter.tex
+    %   \insertAuthor{1}%
+    %   \insertAuthor{2}%
+    %   \insertAuthor{3}%
+    %   \insertAuthor{4}%
+    %   \thanks{
+    %     \insertAuthorAffiliation1%
+    %     \insertAuthorAffiliation2%
+    %     \insertAuthorAffiliation3%
+    %     \insertAuthorAffiliation4.
+    %   }
+    %   \thanks{%
+    %     \getAcknowledgementBlurb{}%
+    %   }%
+    % }
+    \AddToHook{begindocument/end}{%
+      \makeatletter
+      Letter Front matter
+      % Generate title page
+      % \maketitle
+    
+      % Insert the abstract, if it has been defined.
+      % \ifcsdef{frontloader@abstract}{%
+      %   \begin{abstract}%
+      %     \makeatletter%
+      %       \frontloader@abstract%
+      %     \makeatother%
+      %   \end{abstract}%
+      % }{}%
+      %   
+      \makeatother
+    }
+  }
